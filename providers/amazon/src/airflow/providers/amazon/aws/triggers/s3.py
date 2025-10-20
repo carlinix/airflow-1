@@ -42,6 +42,11 @@ class S3KeyTrigger(BaseTrigger):
     :param aws_conn_id: reference to the s3 connection
     :param use_regex: whether to use regex to check bucket
     :param hook_params: params for hook its optional
+    :param metadata_keys: List of head_object attributes to gather and send to ``check_fn``.
+        Acceptable values: Any top level attribute returned by s3.head_object. Specify * to return
+        all available attributes.
+        Default value: "Size".
+        If the requested attribute is not found, the key is still included and the value is None.
     """
 
     def __init__(
@@ -56,6 +61,7 @@ class S3KeyTrigger(BaseTrigger):
         region_name: str | None = None,
         verify: bool | str | None = None,
         botocore_config: dict | None = None,
+        metadata_keys: list[str] | None = None,
         **hook_params: Any,
     ):
         super().__init__()
@@ -70,6 +76,7 @@ class S3KeyTrigger(BaseTrigger):
         self.region_name = region_name
         self.verify = verify
         self.botocore_config = botocore_config
+        self.metadata_keys = metadata_keys or ["Size", "Key"]
 
     def serialize(self) -> tuple[str, dict[str, Any]]:
         """Serialize S3KeyTrigger arguments and classpath."""
@@ -87,6 +94,7 @@ class S3KeyTrigger(BaseTrigger):
                 "region_name": self.region_name,
                 "verify": self.verify,
                 "botocore_config": self.botocore_config,
+                "metadata_keys": self.metadata_keys,
             },
         )
 
@@ -99,20 +107,40 @@ class S3KeyTrigger(BaseTrigger):
             config=self.botocore_config,
         )
 
-    async def run(self) -> AsyncIterator[TriggerEvent]:
-        """Make an asynchronous connection using S3HookAsync."""
+        async def run(self) -> AsyncIterator[TriggerEvent]:
+        """Async loop that waits for keys and yields metadata respecting self.metadata_keys."""
         try:
             async with await self.hook.get_async_conn() as client:
                 while True:
+                    # Wait for at least one key matching pattern or regex
                     if await self.hook.check_key_async(
                         client, self.bucket_name, self.bucket_key, self.wildcard_match, self.use_regex
                     ):
                         if self.should_check_fn:
-                            s3_objects = await self.hook.get_files_async(
-                                client, self.bucket_name, self.bucket_key, self.wildcard_match
-                            )
-                            await asyncio.sleep(self.poke_interval)
-                            yield TriggerEvent({"status": "running", "files": s3_objects})
+                            # Collect matching keys first
+                            paginator = client.get_paginator("list_objects_v2")
+                            pages = paginator.paginate(Bucket=self.bucket_name)
+                            results: list[dict[str, Any]] = []
+                            async for page in pages:
+                                for obj in page.get("Contents", []):
+                                    key_name = obj["Key"]
+                                    # If wildcard_match is enabled, ensure key matches pattern
+                                    if self.wildcard_match and not self.hook.fnmatch(key_name, self.bucket_key):
+                                        continue
+                                    # Fetch object metadata via head_object
+                                    head = await client.head_object(Bucket=self.bucket_name, Key=key_name)
+                                    # Build metadata dict respecting metadata_keys
+                                    if "*" in self.metadata_keys:
+                                        metadata = head
+                                    else:
+                                        metadata = {}
+                                        for mk in self.metadata_keys:
+                                            if mk == "Size":
+                                                metadata[mk] = head.get("ContentLength")
+                                            else:
+                                                metadata[mk] = head.get(mk, None)
+                                    results.append(metadata)
+                            yield TriggerEvent({"status": "running", "files": results})
                         else:
                             yield TriggerEvent({"status": "success"})
                         return
