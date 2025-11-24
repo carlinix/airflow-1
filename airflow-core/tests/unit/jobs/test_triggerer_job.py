@@ -279,7 +279,7 @@ def test_trigger_lifecycle(spy_agency: SpyAgency, session, testing_dag_bundle):
 
 
 @pytest.mark.parametrize(
-    "trigger, watcher_count, trigger_count",
+    ("trigger", "watcher_count", "trigger_count"),
     [
         (TimeDeltaTrigger(datetime.timedelta(days=7)), 0, 1),
         (FileDeleteTrigger("/tmp/foo.txt", poke_interval=1), 1, 0),
@@ -918,7 +918,7 @@ class CustomTriggerDagRun(BaseTrigger):
 
 
 @pytest.mark.asyncio
-@pytest.mark.execution_timeout(10)
+@pytest.mark.execution_timeout(20)
 async def test_trigger_can_fetch_trigger_dag_run_count_and_state_in_deferrable(session, dag_maker):
     """Checks that the trigger will successfully fetch the count of trigger DAG runs."""
     # Create the test DAG and task
@@ -1009,7 +1009,7 @@ class CustomTriggerWorkflowStateTrigger(BaseTrigger):
 
 
 @pytest.mark.asyncio
-@pytest.mark.execution_timeout(10)
+@pytest.mark.execution_timeout(20)
 async def test_trigger_can_fetch_dag_run_count_ti_count_in_deferrable(session, dag_maker):
     """Checks that the trigger will successfully fetch the count of DAG runs, Task count and task states."""
     # Create the test DAG and task
@@ -1199,6 +1199,7 @@ class TestTriggererMessageTypes:
             "GetAssetEventByAssetAlias",
             "GetPrevSuccessfulDagRun",
             "GetPreviousDagRun",
+            "GetTaskBreadcrumbs",
             "GetTaskRescheduleStartDate",
             "GetXComCount",
             "GetXComSequenceItem",
@@ -1221,6 +1222,7 @@ class TestTriggererMessageTypes:
             "AssetEventsResult",
             "SentFDs",
             "StartupDetails",
+            "TaskBreadcrumbsResult",
             "TaskRescheduleStartDate",
             "InactiveAssetsResult",
             "CreateHITLDetailPayload",

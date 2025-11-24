@@ -39,7 +39,6 @@ from tenacity import (
 )
 from uuid6 import uuid7
 
-from airflow.configuration import conf
 from airflow.sdk import __version__
 from airflow.sdk.api.datamodels._generated import (
     API_VERSION,
@@ -53,6 +52,7 @@ from airflow.sdk.api.datamodels._generated import (
     HITLUser,
     InactiveAssetsResponse,
     PrevSuccessfulDagRunResponse,
+    TaskBreadcrumbsResponse,
     TaskInstanceState,
     TaskStatesResponse,
     TerminalStateNonSuccess,
@@ -73,6 +73,7 @@ from airflow.sdk.api.datamodels._generated import (
     XComSequenceIndexResponse,
     XComSequenceSliceResponse,
 )
+from airflow.sdk.configuration import conf
 from airflow.sdk.exceptions import ErrorType
 from airflow.sdk.execution_time.comms import (
     CreateHITLDetailPayload,
@@ -347,6 +348,11 @@ class TaskInstanceOperations:
 
         resp = self.client.get("task-instances/states", params=params)
         return TaskStatesResponse.model_validate_json(resp.read())
+
+    def get_task_breakcrumbs(self, dag_id: str, run_id: str) -> TaskBreadcrumbsResponse:
+        params = {"dag_id": dag_id, "run_id": run_id}
+        resp = self.client.get("task-instances/breadcrumbs", params=params)
+        return TaskBreadcrumbsResponse.model_validate_json(resp.read())
 
     def validate_inlets_and_outlets(self, id: uuid.UUID) -> InactiveAssetsResponse:
         """Validate whether there're inactive assets in inlets and outlets of a given task instance."""
@@ -752,7 +758,7 @@ class HITLOperations:
         body: str | None = None,
         defaults: list[str] | None = None,
         multiple: bool = False,
-        params: dict[str, Any] | None = None,
+        params: dict[str, dict[str, Any]] | None = None,
         assigned_users: list[HITLUser] | None = None,
     ) -> HITLDetailRequest:
         """Add a Human-in-the-loop response that waits for human response for a specific Task Instance."""

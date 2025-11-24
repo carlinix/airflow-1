@@ -245,7 +245,7 @@ class TestGetDags(TestDagEndpoint):
     """Unit tests for Get DAGs."""
 
     @pytest.mark.parametrize(
-        "query_params, expected_total_entries, expected_ids",
+        ("query_params", "expected_total_entries", "expected_ids"),
         [
             # Filters
             ({}, 2, [DAG1_ID, DAG2_ID]),
@@ -463,7 +463,7 @@ class TestGetDags(TestDagEndpoint):
         assert [dag["dag_id"] for dag in body["dags"]] == [DAG1_ID, DAG2_ID]
 
     @pytest.mark.parametrize(
-        "setup_favorites, expected_total_entries, expected_ids",
+        ("setup_favorites", "expected_total_entries", "expected_ids"),
         [
             ([], 0, []),
             ([DAG1_ID], 1, [DAG1_ID]),
@@ -509,7 +509,7 @@ class TestGetDags(TestDagEndpoint):
         assert response.status_code == 403
 
     @pytest.mark.parametrize(
-        "filter_value, expected_ids",
+        ("filter_value", "expected_ids"),
         [
             (True, [DAG1_ID]),
             (False, [DAG2_ID]),
@@ -596,7 +596,15 @@ class TestPatchDag(TestDagEndpoint):
     """Unit tests for Patch DAG."""
 
     @pytest.mark.parametrize(
-        "query_params, dag_id, body, expected_status_code, expected_is_paused, expected_tags, expected_display_name",
+        (
+            "query_params",
+            "dag_id",
+            "body",
+            "expected_status_code",
+            "expected_is_paused",
+            "expected_tags",
+            "expected_display_name",
+        ),
         [
             ({}, "fake_dag_id", {"is_paused": True}, 404, None, [], "fake_dag_display_name"),
             (
@@ -686,7 +694,7 @@ class TestPatchDags(TestDagEndpoint):
     """Unit tests for Patch DAGs."""
 
     @pytest.mark.parametrize(
-        "query_params, body, expected_status_code, expected_ids, expected_paused_ids",
+        ("query_params", "body", "expected_status_code", "expected_ids", "expected_paused_ids"),
         [
             ({"update_mask": ["field_1", "is_paused"]}, {"is_paused": True}, 400, None, None),
             (
@@ -771,7 +779,7 @@ class TestFavoriteDag(TestDagEndpoint):
     """Unit tests for favoriting a DAG."""
 
     @pytest.mark.parametrize(
-        "dag_id, expected_status_code, expected_exist_in_favorites",
+        ("dag_id", "expected_status_code", "expected_exist_in_favorites"),
         [
             ("fake_dag_id", 404, None),
             (DAG1_ID, 204, True),
@@ -810,7 +818,7 @@ class TestUnfavoriteDag(TestDagEndpoint):
     """Unit tests for unfavoriting a DAG."""
 
     @pytest.mark.parametrize(
-        "dag_id, expected_status_code, expected_exist_in_favorites",
+        ("dag_id", "expected_status_code", "expected_exist_in_favorites"),
         [
             ("fake_dag_id", 404, None),
             (DAG1_ID, 204, False),
@@ -850,7 +858,15 @@ class TestDagDetails(TestDagEndpoint):
     """Unit tests for DAG Details."""
 
     @pytest.mark.parametrize(
-        "query_params, dag_id, expected_status_code, dag_display_name, start_date, owner_links, last_parse_duration",
+        (
+            "query_params",
+            "dag_id",
+            "expected_status_code",
+            "dag_display_name",
+            "start_date",
+            "owner_links",
+            "last_parse_duration",
+        ),
         [
             ({}, "fake_dag_id", 404, "fake_dag", "2023-12-31T00:00:00Z", {}, None),
             ({}, DAG2_ID, 200, DAG2_ID, "2021-06-15T00:00:00Z", {}, 0.24),
@@ -938,11 +954,12 @@ class TestDagDetails(TestDagEndpoint):
             "timetable_description": "Never, external triggers only",
             "timezone": UTC_JSON_REPR,
             "is_favorite": False,
+            "active_runs_count": 0,
         }
         assert res_json == expected
 
     @pytest.mark.parametrize(
-        "query_params, dag_id, expected_status_code, dag_display_name, start_date, owner_links",
+        ("query_params", "dag_id", "expected_status_code", "dag_display_name", "start_date", "owner_links"),
         [
             ({}, "fake_dag_id", 404, "fake_dag", "2023-12-31T00:00:00Z", {}),
             ({}, DAG2_ID, 200, DAG2_ID, "2021-06-15T00:00:00Z", {}),
@@ -1027,6 +1044,7 @@ class TestDagDetails(TestDagEndpoint):
             "timetable_description": "Never, external triggers only",
             "timezone": UTC_JSON_REPR,
             "is_favorite": False,
+            "active_runs_count": 0,
         }
         assert res_json == expected
 
@@ -1062,12 +1080,69 @@ class TestDagDetails(TestDagEndpoint):
         assert isinstance(body["is_favorite"], bool)
         assert body["is_favorite"] is False
 
+    def test_dag_details_includes_active_runs_count(self, session, test_client):
+        """Test that DAG details include the active_runs_count field."""
+        # Create running and queued DAG runs for DAG2
+        session.add(
+            DagRun(
+                dag_id=DAG2_ID,
+                run_id="running_run_1",
+                logical_date=datetime(2021, 6, 15, 1, 0, 0, tzinfo=timezone.utc),
+                start_date=datetime(2021, 6, 15, 1, 0, 0, tzinfo=timezone.utc),
+                run_type=DagRunType.MANUAL,
+                state=DagRunState.RUNNING,
+                triggered_by=DagRunTriggeredByType.TEST,
+            )
+        )
+        session.add(
+            DagRun(
+                dag_id=DAG2_ID,
+                run_id="queued_run_1",
+                logical_date=datetime(2021, 6, 15, 2, 0, 0, tzinfo=timezone.utc),
+                start_date=datetime(2021, 6, 15, 2, 0, 0, tzinfo=timezone.utc),
+                run_type=DagRunType.MANUAL,
+                state=DagRunState.QUEUED,
+                triggered_by=DagRunTriggeredByType.TEST,
+            )
+        )
+        # Add a successful DAG run (should not be counted)
+        session.add(
+            DagRun(
+                dag_id=DAG2_ID,
+                run_id="success_run_1",
+                logical_date=datetime(2021, 6, 15, 3, 0, 0, tzinfo=timezone.utc),
+                start_date=datetime(2021, 6, 15, 3, 0, 0, tzinfo=timezone.utc),
+                run_type=DagRunType.MANUAL,
+                state=DagRunState.SUCCESS,
+                triggered_by=DagRunTriggeredByType.TEST,
+            )
+        )
+        session.commit()
+
+        response = test_client.get(f"/dags/{DAG2_ID}/details")
+        assert response.status_code == 200
+        body = response.json()
+
+        # Verify active_runs_count field is present and correct
+        assert "active_runs_count" in body
+        assert isinstance(body["active_runs_count"], int)
+        assert body["active_runs_count"] == 2  # 1 running + 1 queued
+
+        # Test with DAG that has no active runs
+        response = test_client.get(f"/dags/{DAG1_ID}/details")
+        assert response.status_code == 200
+        body = response.json()
+
+        assert "active_runs_count" in body
+        assert isinstance(body["active_runs_count"], int)
+        assert body["active_runs_count"] == 0
+
 
 class TestGetDag(TestDagEndpoint):
     """Unit tests for Get DAG."""
 
     @pytest.mark.parametrize(
-        "query_params, dag_id, expected_status_code, dag_display_name, expected_tags",
+        ("query_params", "dag_id", "expected_status_code", "dag_display_name", "expected_tags"),
         [
             ({}, "fake_dag_id", 404, "fake_dag", []),
             ({}, DAG2_ID, 200, DAG2_ID, []),
@@ -1159,7 +1234,14 @@ class TestDeleteDAG(TestDagEndpoint):
         dag_maker.sync_dagbag_to_db()
 
     @pytest.mark.parametrize(
-        "dag_id, dag_display_name, status_code_delete, status_code_details, has_running_dagruns, is_create_dag",
+        (
+            "dag_id",
+            "dag_display_name",
+            "status_code_delete",
+            "status_code_details",
+            "has_running_dagruns",
+            "is_create_dag",
+        ),
         [
             ("test_nonexistent_dag_id", "nonexistent_display_name", 404, 404, False, False),
             (DAG4_ID, DAG4_DISPLAY_NAME, 204, 404, False, True),
